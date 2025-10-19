@@ -55,8 +55,17 @@ def initiate_call():
     data = request.json
     phone_number = data.get('phone_number')
     
+    print(f"\n{'='*60}")
+    print(f"📞 INITIATING CALL")
+    print(f"{'='*60}")
+    print(f"To: {phone_number}")
+    print(f"From: {TWILIO_PHONE_NUMBER}")
+    print(f"Webhook URL: {BASE_URL}/voice")
+    
     if not phone_number:
-        return jsonify({'error': 'phone_number is required'}), 400
+        error_msg = 'phone_number is required'
+        print(f"❌ ERROR: {error_msg}\n")
+        return jsonify({'error': error_msg}), 400
     
     try:
         # Make the call via Twilio
@@ -68,6 +77,11 @@ def initiate_call():
             status_callback_event=['initiated', 'ringing', 'answered', 'completed']
         )
         
+        print(f"✅ Call initiated successfully!")
+        print(f"Call SID: {call.sid}")
+        print(f"Status: {call.status}")
+        print(f"{'='*60}\n")
+        
         return jsonify({
             'success': True,
             'call_sid': call.sid,
@@ -75,26 +89,54 @@ def initiate_call():
         })
     
     except Exception as e:
+        print(f"❌ ERROR INITIATING CALL:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/voice', methods=['GET', 'POST'])
 def voice():
     """Twilio voice webhook - connects call to WebSocket"""
-    response = VoiceResponse()
-    
-    # Get call SID
     call_sid = request.form.get('CallSid', 'unknown')
+    call_from = request.form.get('From', 'unknown')
+    call_to = request.form.get('To', 'unknown')
     
-    # Connect to WebSocket for audio streaming
-    # Use the separate WEBSOCKET_URL (port 6000) not the BASE_URL (port 5000)
-    ws_url = WEBSOCKET_URL.replace('http://', 'ws://').replace('https://', 'wss://')
-    connect = Connect()
-    connect.stream(url=f'{ws_url}/media/{call_sid}')
+    print(f"\n{'='*60}")
+    print(f"📱 VOICE WEBHOOK TRIGGERED")
+    print(f"{'='*60}")
+    print(f"Call SID: {call_sid}")
+    print(f"From: {call_from}")
+    print(f"To: {call_to}")
     
-    response.append(connect)
+    try:
+        response = VoiceResponse()
+        
+        # Connect to WebSocket for audio streaming
+        # Use the separate WEBSOCKET_URL (port 6000) not the BASE_URL (port 5000)
+        ws_url = WEBSOCKET_URL.replace('http://', 'ws://').replace('https://', 'wss://')
+        
+        print(f"WebSocket URL: {ws_url}/media/{call_sid}")
+        
+        connect = Connect()
+        connect.stream(url=f'{ws_url}/media/{call_sid}')
+        
+        response.append(connect)
+        
+        twiml = str(response)
+        print(f"✅ TwiML Response Generated:")
+        print(twiml)
+        print(f"{'='*60}\n")
+        
+        return twiml, 200, {'Content-Type': 'text/xml'}
     
-    return str(response), 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        print(f"❌ ERROR IN VOICE WEBHOOK:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
+        raise
 
 
 @app.route('/status', methods=['POST'])
@@ -102,8 +144,20 @@ def status():
     """Twilio status callback"""
     call_sid = request.form.get('CallSid')
     call_status = request.form.get('CallStatus')
+    error_code = request.form.get('ErrorCode')
+    error_message = request.form.get('ErrorMessage')
     
-    print(f"Call {call_sid}: {call_status}")
+    print(f"\n{'='*60}")
+    print(f"📊 CALL STATUS UPDATE")
+    print(f"{'='*60}")
+    print(f"Call SID: {call_sid}")
+    print(f"Status: {call_status}")
+    
+    if error_code:
+        print(f"❌ ERROR CODE: {error_code}")
+        print(f"❌ ERROR MESSAGE: {error_message}")
+    
+    print(f"{'='*60}\n")
     
     return '', 200
 
@@ -114,21 +168,33 @@ async def handle_media_stream(websocket, path):
     Handle WebSocket connection between Twilio and OpenAI
     This is where the magic happens - audio flows bidirectionally
     """
-    print(f"WebSocket connection established: {path}")
+    call_sid = path.split('/')[-1] if '/' in path else 'unknown'
     
-    # Extract call_sid from path
-    call_sid = path.split('/')[-1]
+    print(f"\n{'='*60}")
+    print(f"🔌 WEBSOCKET CONNECTION ESTABLISHED")
+    print(f"{'='*60}")
+    print(f"Path: {path}")
+    print(f"Call SID: {call_sid}")
     
-    # Connect to OpenAI Realtime API
-    openai_ws = await websockets.connect(
-        'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
-        extra_headers={
-            'Authorization': f'Bearer {OPENAI_API_KEY}',
-            'OpenAI-Beta': 'realtime=v1'
-        }
-    )
+    try:
+        # Connect to OpenAI Realtime API
+        print(f"🔗 Connecting to OpenAI Realtime API...")
+        openai_ws = await websockets.connect(
+            'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
+            extra_headers={
+                'Authorization': f'Bearer {OPENAI_API_KEY}',
+                'OpenAI-Beta': 'realtime=v1'
+            }
+        )
+        
+        print(f"✅ Connected to OpenAI for call {call_sid}")
     
-    print(f"Connected to OpenAI for call {call_sid}")
+    except Exception as e:
+        print(f"❌ ERROR CONNECTING TO OPENAI:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
+        return
     
     # Configure OpenAI session
     session_config = {
@@ -152,8 +218,16 @@ async def handle_media_stream(websocket, path):
         }
     }
     
-    await openai_ws.send(json.dumps(session_config))
-    print("OpenAI session configured")
+    try:
+        await openai_ws.send(json.dumps(session_config))
+        print("✅ OpenAI session configured")
+        print(f"{'='*60}\n")
+    except Exception as e:
+        print(f"❌ ERROR CONFIGURING OPENAI SESSION:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
+        return
     
     # Handle bidirectional streaming
     async def twilio_to_openai():
@@ -178,7 +252,9 @@ async def handle_media_stream(websocket, path):
                     break
         
         except Exception as e:
-            print(f"Error in twilio_to_openai: {e}")
+            print(f"\n❌ Error in twilio_to_openai:")
+            print(f"Error Type: {type(e).__name__}")
+            print(f"Error Message: {str(e)}\n")
     
     async def openai_to_twilio():
         """Forward audio from OpenAI to Twilio"""
@@ -196,7 +272,8 @@ async def handle_media_stream(websocket, path):
                     }))
                 
                 elif event['type'] == 'conversation.item.input_audio_transcription.completed':
-                    print(f"User said: {event.get('transcript', '')}")
+                    transcript = event.get('transcript', '')
+                    print(f"👤 User said: {transcript}")
                 
                 elif event['type'] == 'response.done':
                     output = event.get('response', {}).get('output', [])
@@ -205,13 +282,17 @@ async def handle_media_stream(websocket, path):
                         if content:
                             transcript = content[0].get('transcript', '')
                             if transcript:
-                                print(f"Vanessa said: {transcript}")
+                                print(f"🤖 Vanessa said: {transcript}")
                 
                 elif event['type'] == 'error':
-                    print(f"OpenAI error: {event.get('error', {})}")
+                    print(f"\n❌ OPENAI ERROR:")
+                    print(f"Error: {event.get('error', {})}")
+                    print()
         
         except Exception as e:
-            print(f"Error in openai_to_twilio: {e}")
+            print(f"\n❌ Error in openai_to_twilio:")
+            print(f"Error Type: {type(e).__name__}")
+            print(f"Error Message: {str(e)}\n")
     
     # Run both directions concurrently
     try:
@@ -220,10 +301,14 @@ async def handle_media_stream(websocket, path):
             openai_to_twilio()
         )
     except Exception as e:
-        print(f"Error in media stream: {e}")
+        print(f"\n❌ ERROR IN MEDIA STREAM:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
     finally:
         await openai_ws.close()
-        print("OpenAI connection closed")
+        print(f"\n🔌 OpenAI connection closed for call {call_sid}")
+        print(f"{'='*60}\n")
 
 
 def run_websocket_server():
@@ -246,5 +331,10 @@ if __name__ == '__main__':
     # Start Flask app
     print(f"🚀 Vanessa AI Server starting on port {PORT}")
     print(f"📞 Make calls to: POST {BASE_URL}/call")
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    
+    # In production/Docker, disable the reloader to prevent WebSocket port conflicts
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    use_reloader = os.getenv('FLASK_USE_RELOADER', 'False').lower() == 'true'
+    
+    app.run(host='0.0.0.0', port=PORT, debug=debug_mode, use_reloader=use_reloader)
 

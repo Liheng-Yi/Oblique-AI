@@ -13,13 +13,31 @@ Makes phone calls and has simple AI conversations. That's it!
 
 ## Quick Start
 
+### Option 1: Docker (Recommended - No Multiple Terminals!)
+
+```bash
+# 1. Create your .env file
+cp .env.example .env
+# Edit .env with your API keys
+
+# 2. Start everything with one command
+docker compose up
+
+# 3. Get ngrok URLs from http://localhost:4540 and http://localhost:4541
+# 4. Update .env with those URLs and restart
+```
+
+📖 **[Full Docker Guide →](DOCKER.md)**
+
+### Option 2: Manual Setup
+
 ```bash
 # Install dependencies
 cd backend
 pip install -r requirements.txt
 
 # Configure (create .env file)
-cp .env.example .env
+cp backend/env.example backend/.env
 # Edit .env with your API keys
 
 # Run
@@ -57,13 +75,22 @@ Super simple. Audio flows bidirectionally through your server.
 
 ## Local Development
 
-For Twilio to reach your webhooks locally, use ngrok:
+### With Docker (Easy!)
+Docker Compose handles both ngrok tunnels automatically. See [DOCKER.md](DOCKER.md)
+
+### Manual ngrok Setup
+You need TWO ngrok tunnels (one for Flask port 5000, one for WebSocket port 6000):
 
 ```bash
+# Terminal 1: Flask HTTP
 ngrok http 5000
 
-# Update .env with ngrok URL
-BASE_URL=https://xxxx.ngrok-free.app
+# Terminal 2: WebSocket
+ngrok http 6000
+
+# Update .env with both URLs
+BASE_URL=https://abc123.ngrok.io
+WEBSOCKET_URL=wss://xyz789.ngrok.io
 ```
 
 ## Files
@@ -72,8 +99,12 @@ BASE_URL=https://xxxx.ngrok-free.app
 backend/
 ├── app.py              # Main Flask app (simple!)
 ├── requirements.txt    # Python dependencies
-├── .env.example        # Environment variables template
-└── README.md          # Backend-specific docs
+├── env.example         # Environment variables template
+├── Dockerfile          # Docker container config
+└── README.md           # Backend-specific docs
+
+docker-compose.yml      # Orchestrates all services
+DOCKER.md              # Docker setup guide
 ```
 
 ## Customization

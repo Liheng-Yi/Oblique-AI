@@ -29,3 +29,6 @@ Thumbs.db
 # Temporary
 tmp/
 temp/
+
+# Docker
+docker-compose.override.yml
