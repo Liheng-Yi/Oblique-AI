@@ -9,14 +9,15 @@ import websockets
 import json
 import base64
 from flask import Flask, request, jsonify
+from flask_sock import Sock
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from threading import Thread
 
 load_dotenv()
 
 app = Flask(__name__)
+sock = Sock(app)
 
 # Configuration
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
@@ -24,7 +25,6 @@ TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 BASE_URL = os.getenv('BASE_URL', 'http://localhost:5000')
-WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', 'ws://localhost:6000')
 PORT = int(os.getenv('PORT', 5000))
 
 # Twilio client
@@ -72,9 +72,10 @@ def initiate_call():
         call = twilio_client.calls.create(
             to=phone_number,
             from_=TWILIO_PHONE_NUMBER,
-            url=f'{BASE_URL}/voice',
-            status_callback=f'{BASE_URL}/status',
-            status_callback_event=['initiated', 'ringing', 'answered', 'completed']
+            url=f'{BASE_URL}/voice'
+            # Temporarily disabled status callback due to ngrok free tier
+            # status_callback=f'{BASE_URL}/status',
+            # status_callback_event=['initiated', 'ringing', 'answered', 'completed']
         )
         
         print(f"✅ Call initiated successfully!")
@@ -114,8 +115,8 @@ def voice():
         response = VoiceResponse()
         
         # Connect to WebSocket for audio streaming
-        # Use the separate WEBSOCKET_URL (port 6000) not the BASE_URL (port 5000)
-        ws_url = WEBSOCKET_URL.replace('http://', 'ws://').replace('https://', 'wss://')
+        # WebSocket runs on the same port as Flask (with flask-sock)
+        ws_url = BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://')
         
         print(f"WebSocket URL: {ws_url}/media/{call_sid}")
         
@@ -162,20 +163,35 @@ def status():
     return '', 200
 
 
-# WebSocket handler for media streaming
-async def handle_media_stream(websocket, path):
+# WebSocket handler for media streaming using flask-sock
+@sock.route('/media/<call_sid>')
+def handle_media_stream(ws, call_sid):
     """
     Handle WebSocket connection between Twilio and OpenAI
     This is where the magic happens - audio flows bidirectionally
     """
-    call_sid = path.split('/')[-1] if '/' in path else 'unknown'
-    
     print(f"\n{'='*60}")
     print(f"🔌 WEBSOCKET CONNECTION ESTABLISHED")
     print(f"{'='*60}")
-    print(f"Path: {path}")
     print(f"Call SID: {call_sid}")
     
+    # Create a new event loop for this WebSocket connection
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(handle_media_stream_async(ws, call_sid))
+    except Exception as e:
+        print(f"\n❌ ERROR IN MEDIA STREAM:")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {str(e)}")
+        print(f"{'='*60}\n")
+    finally:
+        loop.close()
+
+
+async def handle_media_stream_async(ws, call_sid):
+    """Async handler for WebSocket media streaming"""
     try:
         # Connect to OpenAI Realtime API
         print(f"🔗 Connecting to OpenAI Realtime API...")
@@ -233,7 +249,11 @@ async def handle_media_stream(websocket, path):
     async def twilio_to_openai():
         """Forward audio from Twilio to OpenAI"""
         try:
-            async for message in websocket:
+            while True:
+                message = ws.receive()
+                if message is None:
+                    break
+                    
                 data = json.loads(message)
                 
                 if data.get('event') == 'start':
@@ -264,7 +284,7 @@ async def handle_media_stream(websocket, path):
                 
                 if event['type'] == 'response.audio.delta':
                     # Forward audio to Twilio
-                    await websocket.send(json.dumps({
+                    ws.send(json.dumps({
                         'event': 'media',
                         'media': {
                             'payload': event['delta']
@@ -301,38 +321,23 @@ async def handle_media_stream(websocket, path):
             openai_to_twilio()
         )
     except Exception as e:
-        print(f"\n❌ ERROR IN MEDIA STREAM:")
+        print(f"\n❌ ERROR IN STREAMING:")
         print(f"Error Type: {type(e).__name__}")
         print(f"Error Message: {str(e)}")
-        print(f"{'='*60}\n")
     finally:
         await openai_ws.close()
         print(f"\n🔌 OpenAI connection closed for call {call_sid}")
         print(f"{'='*60}\n")
 
 
-def run_websocket_server():
-    """Run WebSocket server in a separate thread"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    start_server = websockets.serve(handle_media_stream, '0.0.0.0', 6000)
-    
-    print("WebSocket server started on port 6000")
-    loop.run_until_complete(start_server)
-    loop.run_forever()
-
-
 if __name__ == '__main__':
-    # Start WebSocket server in background
-    ws_thread = Thread(target=run_websocket_server, daemon=True)
-    ws_thread.start()
-    
-    # Start Flask app
+    # Start Flask app with WebSocket support
     print(f"🚀 Vanessa AI Server starting on port {PORT}")
     print(f"📞 Make calls to: POST {BASE_URL}/call")
+    print(f"🔌 WebSocket available at: ws://<your-domain>:{PORT}/media/<call_sid>")
+    print(f"\nNote: Both HTTP and WebSocket run on the same port ({PORT})")
     
-    # In production/Docker, disable the reloader to prevent WebSocket port conflicts
+    # In production/Docker, disable the reloader
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     use_reloader = os.getenv('FLASK_USE_RELOADER', 'False').lower() == 'true'
     
