@@ -30,14 +30,14 @@ PORT = int(os.getenv('PORT', 5000))
 # Twilio client
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Simple system prompt - just say hi and have a basic conversation
-SYSTEM_PROMPT = """You are Vanessa, a friendly AI assistant. 
+# System prompt - caring boyfriend persona
+SYSTEM_PROMPT = """You are Cecilia's caring and attentive boyfriend. 
 
-Keep the conversation simple and natural. Say hi, introduce yourself briefly, and have a casual conversation. Be warm and friendly.
+You're checking in on her because you're concerned about her neck pain. Be warm, loving, and genuinely interested in how she's feeling. Ask follow-up questions about her well-being.
 
-Example opening: "Hi! This is Vanessa. How are you doing today?"
+Keep responses natural and conversational, like a real boyfriend would talk. Be supportive and caring.
 
-Keep responses short and conversational."""
+Keep responses relatively short and natural - this is a phone conversation."""
 
 
 @app.route('/health', methods=['GET'])
@@ -170,46 +170,58 @@ def handle_media_stream(ws, call_sid):
     Handle WebSocket connection between Twilio and OpenAI
     This is where the magic happens - audio flows bidirectionally
     """
-    print(f"\n{'='*60}")
-    print(f"🔌 WEBSOCKET CONNECTION ESTABLISHED")
-    print(f"{'='*60}")
-    print(f"Call SID: {call_sid}")
+    print(f"\n{'='*60}", flush=True)
+    print(f"🔌 WEBSOCKET CONNECTION ESTABLISHED", flush=True)
+    print(f"{'='*60}", flush=True)
+    print(f"Call SID: {call_sid}", flush=True)
+    print(f"WebSocket object: {ws}", flush=True)
+    print(f"OPENAI_API_KEY present: {'Yes' if OPENAI_API_KEY else 'No'}", flush=True)
     
     # Create a new event loop for this WebSocket connection
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
     try:
+        print(f"Starting async handler...", flush=True)
         loop.run_until_complete(handle_media_stream_async(ws, call_sid))
     except Exception as e:
-        print(f"\n❌ ERROR IN MEDIA STREAM:")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Message: {str(e)}")
-        print(f"{'='*60}\n")
+        print(f"\n❌ ERROR IN MEDIA STREAM:", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}", flush=True)
+        print(f"{'='*60}\n", flush=True)
     finally:
         loop.close()
+        print(f"WebSocket handler finished for {call_sid}", flush=True)
 
 
 async def handle_media_stream_async(ws, call_sid):
     """Async handler for WebSocket media streaming"""
+    stream_sid = None  # Add this to store the streamSid
+    
     try:
         # Connect to OpenAI Realtime API
-        print(f"🔗 Connecting to OpenAI Realtime API...")
+        print(f"🔗 Connecting to OpenAI Realtime API...", flush=True)
+        print(f"API Key : {OPENAI_API_KEY} ", flush=True)
+        
         openai_ws = await websockets.connect(
-            'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
+            'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
             extra_headers={
                 'Authorization': f'Bearer {OPENAI_API_KEY}',
                 'OpenAI-Beta': 'realtime=v1'
             }
         )
         
-        print(f"✅ Connected to OpenAI for call {call_sid}")
+        print(f"✅ Connected to OpenAI for call {call_sid}", flush=True)
     
     except Exception as e:
-        print(f"❌ ERROR CONNECTING TO OPENAI:")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Message: {str(e)}")
-        print(f"{'='*60}\n")
+        print(f"❌ ERROR CONNECTING TO OPENAI:", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}", flush=True)
+        print(f"{'='*60}\n", flush=True)
         return
     
     # Configure OpenAI session
@@ -218,7 +230,7 @@ async def handle_media_stream_async(ws, call_sid):
         'session': {
             'modalities': ['text', 'audio'],
             'instructions': SYSTEM_PROMPT,
-            'voice': 'alloy',
+            'voice': 'echo',  # Male voice options: 'echo', 'fable', 'onyx'
             'input_audio_format': 'g711_ulaw',
             'output_audio_format': 'g711_ulaw',
             'input_audio_transcription': {
@@ -236,28 +248,62 @@ async def handle_media_stream_async(ws, call_sid):
     
     try:
         await openai_ws.send(json.dumps(session_config))
-        print("✅ OpenAI session configured")
-        print(f"{'='*60}\n")
+        print("✅ OpenAI session configured", flush=True)
+        
+        # Send initial greeting to make AI speak first
+        initial_message = {
+            'type': 'conversation.item.create',
+            'item': {
+                'type': 'message',
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'input_text',
+                        'text': 'Say: "Hi, Cecilia, I\'m your boyfriend. Does your neck still hurt?"'
+                    }
+                ]
+            }
+        }
+        await openai_ws.send(json.dumps(initial_message))
+        
+        # Trigger the response
+        response_create = {
+            'type': 'response.create'
+        }
+        await openai_ws.send(json.dumps(response_create))
+        print("✅ Initial greeting sent", flush=True)
+        print(f"{'='*60}\n", flush=True)
+        
     except Exception as e:
-        print(f"❌ ERROR CONFIGURING OPENAI SESSION:")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Message: {str(e)}")
-        print(f"{'='*60}\n")
+        print(f"❌ ERROR CONFIGURING OPENAI SESSION:", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}", flush=True)
+        print(f"{'='*60}\n", flush=True)
         return
     
     # Handle bidirectional streaming
     async def twilio_to_openai():
         """Forward audio from Twilio to OpenAI"""
+        nonlocal stream_sid
+        print(f"📥 Starting Twilio -> OpenAI stream", flush=True)
         try:
             while True:
-                message = ws.receive()
+                # Run synchronous ws.receive() in an executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                message = await loop.run_in_executor(None, ws.receive)
+                
                 if message is None:
+                    print(f"Twilio WebSocket closed", flush=True)
                     break
                     
                 data = json.loads(message)
+                print(f"📩 Twilio event: {data.get('event')}", flush=True)  # Debug
                 
                 if data.get('event') == 'start':
-                    print(f"Twilio stream started: {data.get('streamSid')}")
+                    stream_sid = data['start']['streamSid']
+                    print(f"✅ Twilio stream started: {stream_sid}", flush=True)
                 
                 elif data.get('event') == 'media':
                     # Forward audio to OpenAI
@@ -268,32 +314,42 @@ async def handle_media_stream_async(ws, call_sid):
                     }))
                 
                 elif data.get('event') == 'stop':
-                    print("Twilio stream stopped")
+                    print(f"⏹️ Twilio stream stopped", flush=True)
                     break
         
         except Exception as e:
-            print(f"\n❌ Error in twilio_to_openai:")
-            print(f"Error Type: {type(e).__name__}")
-            print(f"Error Message: {str(e)}\n")
+            print(f"\n❌ Error in twilio_to_openai:", flush=True)
+            print(f"Error Type: {type(e).__name__}", flush=True)
+            print(f"Error Message: {str(e)}\n", flush=True)
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}", flush=True)
     
     async def openai_to_twilio():
         """Forward audio from OpenAI to Twilio"""
+        print(f"📤 Starting OpenAI -> Twilio stream", flush=True)
         try:
             async for message in openai_ws:
                 event = json.loads(message)
+                print(f"📨 OpenAI event: {event['type']}", flush=True)
                 
                 if event['type'] == 'response.audio.delta':
-                    # Forward audio to Twilio
-                    ws.send(json.dumps({
-                        'event': 'media',
-                        'media': {
-                            'payload': event['delta']
-                        }
-                    }))
+                    print(f"🔊 Received audio delta from OpenAI (size: {len(event.get('delta', ''))})", flush=True)
+                    # Forward audio to Twilio with streamSid
+                    if stream_sid:  # Only send if we have the streamSid
+                        ws.send(json.dumps({
+                            'event': 'media',
+                            'streamSid': stream_sid,
+                            'media': {
+                                'payload': event['delta']
+                            }
+                        }))
+                        print(f"📤 Sent audio to Twilio", flush=True)
+                    else:
+                        print(f"⚠️ No streamSid yet, skipping audio", flush=True)
                 
                 elif event['type'] == 'conversation.item.input_audio_transcription.completed':
                     transcript = event.get('transcript', '')
-                    print(f"👤 User said: {transcript}")
+                    print(f"👤 User said: {transcript}", flush=True)
                 
                 elif event['type'] == 'response.done':
                     output = event.get('response', {}).get('output', [])
@@ -302,32 +358,38 @@ async def handle_media_stream_async(ws, call_sid):
                         if content:
                             transcript = content[0].get('transcript', '')
                             if transcript:
-                                print(f"🤖 Vanessa said: {transcript}")
+                                print(f"🤖 Vanessa said: {transcript}", flush=True)
                 
                 elif event['type'] == 'error':
-                    print(f"\n❌ OPENAI ERROR:")
-                    print(f"Error: {event.get('error', {})}")
+                    print(f"\n❌ OPENAI ERROR:", flush=True)
+                    print(f"Error: {event.get('error', {})}", flush=True)
                     print()
         
         except Exception as e:
-            print(f"\n❌ Error in openai_to_twilio:")
-            print(f"Error Type: {type(e).__name__}")
-            print(f"Error Message: {str(e)}\n")
+            print(f"\n❌ Error in openai_to_twilio:", flush=True)
+            print(f"Error Type: {type(e).__name__}", flush=True)
+            print(f"Error Message: {str(e)}\n", flush=True)
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}", flush=True)
     
     # Run both directions concurrently
+    print(f"🔄 Starting bidirectional streaming...", flush=True)
     try:
         await asyncio.gather(
             twilio_to_openai(),
             openai_to_twilio()
         )
+        print(f"✅ Streaming completed normally", flush=True)
     except Exception as e:
-        print(f"\n❌ ERROR IN STREAMING:")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Message: {str(e)}")
+        print(f"\n❌ ERROR IN STREAMING:", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}", flush=True)
     finally:
         await openai_ws.close()
-        print(f"\n🔌 OpenAI connection closed for call {call_sid}")
-        print(f"{'='*60}\n")
+        print(f"\n🔌 OpenAI connection closed for call {call_sid}", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
 
 if __name__ == '__main__':
